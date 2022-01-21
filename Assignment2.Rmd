@@ -1,0 +1,234 @@
+---
+title: "Assignment2"
+author: "Sabastian Bouma"
+date: "14/09/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+X = scan(file="assignment2_prob2_2021.txt", what=double())
+n=300
+max.iter=100
+epsilon=0.00001
+```
+
+
+
+```{r cars}
+mixture.EM = function(X, w.init, l.init, epsilon=1e-5, max.iter=100) {
+  w.curr = w.init
+  l.curr = l.init
+  
+  log_liks = c()
+  log_liks = c(log_liks, compute.log.lik(X, w.curr, l.curr)$ill)
+  
+  delta.ll = 1
+  
+  n.iter = 1
+  
+  while((delta.ll>epsilon) & (n.iter<=max.iter)){
+    EM.out = EM.iter(X, w.curr, l.curr)
+    
+    w.curr = EM.out$w.new
+    l.curr = EM.out$l.new
+    
+    log_liks = c(log_liks, compute.log.lik(X, w.curr, l.curr)$ill)
+    
+    delta.ll = log_liks[length(log_liks)] - log_liks[length(log_liks)-1]
+    
+    n.iter = n.iter + 1
+  }
+  return(list(w.curr=w.curr, l.curr=l.curr, log_liks=log_liks))
+}
+
+EM.iter = function(X, w.curr, l.curr) {
+  prob.x.z = compute.prob.x.z(X, w.curr, l.curr)$prob.x.z
+  
+  P_ik = prob.x.z / rowSums(prob.x.z)
+  
+  w.new = colSums(P_ik)/sum(P_ik)
+  
+  l.new = colSums(P_ik*X[1:300])/colSums(P_ik)
+  l.new[2] = (P_ik[2]*X[1:300]+X[301:400])
+  
+  return(list(w.new=w.new, l.new=l.new))
+}
+
+compute.prob.x.z = function(X, w.curr, l.curr) {
+  L = matrix(NA, nrow=length(X), ncol = length(w.curr))
+  for(k in seq_len(ncol(L))){
+    L[, k] = dpois(X, lambda = l.curr[k])*w.curr[k]
+  }
+  return(list(prob.x.z=L))
+}
+compute.log.lik = function(X, w.curr, l.curr){
+  prob.x.z = compute.prob.x.z(X, w.curr, l.curr)$prob.x.z
+  
+  ill = sum(log(rowSums(prob.x.z)))
+  
+  return(list(ill=ill))
+}
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r}
+EM1 = mixture.EM(X, w.init=c(0.3,0.3, 0.4), l.init=c(3,20,35))
+EM2 = mixture.EM(X, w.init=c(0.1,0.2, 0.7), l.init=c(5,25,40))
+
+print(EM1$log_liks[length(EM1$log_liks)-1])
+
+print(EM1$log_liks[length(EM1$log_liks)])
+
+```
+
+```{r pressure}
+EM1 = mixture.EM(X, w.init=c(0.3,0.3, 0.4), l.init=c(3,20,35))
+EM2 = mixture.EM(X, w.init=c(0.1,0.2, 0.7), l.init=c(5,25,40))
+
+print("Thetas:")
+print(paste("EM1",EM1$w.curr))
+print(paste("EM2",EM2$w.curr))
+print("Lambdas:")
+print(paste("EM1",EM1$l.curr))
+print(paste("EM2",EM2$l.curr))
+
+```
+
+```{r}
+xlim=c(1,max(length(EM1$log_liks), length(EM2$log_liks)))
+ylim=range(c(EM1$log_liks, EM2$log_liks))
+plot(EM1$log_liks, xlim=xlim, ylim=ylim, type='b', ylab='incomplete log-likelihood', xlab='iteration')
+points(EM2$log_liks, type='b', pch='*', col=2)
+```
+
+```{r}
+library(MASS)
+data <- read.table(file ="assignment2_prob1_2021.txt", header=TRUE)
+dim(data)
+names(data)
+data$prebake <- factor(data$prebake)
+data$flux <- factor(data$flux)
+data$cooling <- factor(data$cooling)
+data$temp <- factor(data$temp)
+```
+
+```{r}
+png("histogram.numDefects.png", height=250, width=250)
+hist(data$numDefects)
+dev.off()
+```
+Based on the above histogram, poisson, quasi poisson and negative binomial are candidate distributions for the model. First we will look at poisson
+
+```{r}
+summary(data)
+```
+
+```{r}
+png("interactions.png", height=300, width=450)
+par(mfrow=c(2,3))
+with(data, {
+  interaction.plot(prebake, flux, numDefects, ylab="y")
+  interaction.plot(prebake, cooling, numDefects, ylab="y")
+  interaction.plot(prebake, temp, numDefects, ylab="y")
+  interaction.plot(flux, cooling, numDefects, ylab="y")
+  interaction.plot(flux, temp, numDefects, ylab="y")
+  interaction.plot(cooling, temp, numDefects, ylab="y")
+})
+dev.off()
+```
+
+```{r}
+model = glm(numDefects ~ ., family=poisson, data=data)
+summary(model)
+```
+
+```{r}
+(phi <- sum(residuals(model, type="pearson")^2)/43)
+```
+
+```{r}
+length(data)
+```
+
+```{r}
+intercept_only <- glm(numDefects ~ 1, family=poisson, data=data)
+model_initial <- glm(numDefects ~ ., family=poisson, data=data)
+model <- step(model_initial, direction='forward',scope=. ~ .^2)
+summary(model)
+```
+
+```{r}
+(phi <- sum(residuals(model, type="pearson")^2)/38)
+```
+
+```{r}
+anova(model3, test="Chi")
+```
+
+```{r}
+model3_init = glm.nb(numDefects ~ ., data=data)
+model3 <- step(model3_init, direction='forward',scope=. ~ .^2)
+summary(model3)
+
+```
+
+```{r}
+round(model3$coefficients, 2)
+```
+
+```{r}
+model2 = glm(numDefects ~ prebake + flux + cooling + temp + 
+    cooling:temp + prebake:cooling + prebake:temp + prebake:flux + 
+    flux:temp,family=quasipoisson, data = data)
+summary(model2)
+```
+
+```{r}
+model2 <- glm(numDefects ~ prebake + flux + cooling + temp + cooling:temp + prebake:cooling + prebake:temp + prebake:flux +  flux:temp + prebake:cooling:temp + prebake:flux:temp, data=data, family=quasipoisson)
+drop1(model2, test = "F")
+model2 <- glm(numDefects ~ prebake + flux + cooling + temp + cooling:temp + prebake:cooling + prebake:temp + prebake:flux +  flux:temp + prebake:cooling:temp, data=data, family=quasipoisson)
+drop1(model2, test="F")
+model2 <- glm(numDefects ~ prebake + cooling + temp + cooling:temp + prebake:cooling + prebake:temp+ prebake:cooling:temp, data=data, family=quasipoisson)
+drop1(model2, test="F")
+summary(model2)
+```
+
+
+```{r}
+model3 <- glm(numDefects ~ prebake + flux + cooling + temp + cooling:temp + prebake:cooling + prebake:temp + prebake:flux +  flux:temp + prebake:cooling:temp, data=data, family=quasipoisson)
+anova(model2, model3, test="F")
+```
+
+
+```{r}
+model2 <- glm(numDefects ~ ., data=data, family=quasipoisson)
+
+dfun <- function(object) {
+  with(object,sum((weights * residuals^2)[weights > 0])/df.residual)
+}
+
+x.quasipoisson <- function(...) {
+  res <- quasipoisson(...)
+  res$aic <- poisson(...)$aic
+  res
+}
+
+qdredge <- function(model, family='x.quasipoisson', na.action=na.fail, chat = dfun(model), rank='QAIC', ...){
+  model2 <- update(model, family=family, na.action=na.action)
+  (dt <- dredge(model2, rank=rank, chat=chat, ...))
+}
+
+qdredge(model2)
+```
+
+```{r}
+model_init3 <- glm.nb(numDefects ~ .,data=data)
+model3 <- step(model_init3, direction='forward',scope=. ~ .^2)
+summary(model3)
+```
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
